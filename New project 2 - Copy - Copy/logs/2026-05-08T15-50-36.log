@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-05-08T15:50:36.806Z",
+  "model": "gemma3:4b",
+  "userInput": "ываыва тест шум",
+  "analysis": {
+    "intent": "noise",
+    "shouldRespond": false,
+    "memoryAction": "none",
+    "reflect": false,
+    "allowSchedule": false
+  },
+  "mode": "IGNORE",
+  "policy": {
+    "allowMemSave": false,
+    "allowedMemoryKinds": [
+      "short",
+      "long"
+    ],
+    "allowMemDelete": false,
+    "allowReflect": false,
+    "allowSchedule": false
+  },
+  "prompt": "",
+  "response": "",
+  "parsed": {
+    "thought": "",
+    "actions": {
+      "saves": [],
+      "deletes": [],
+      "scheduleSec": 3600,
+      "reflect": false
+    },
+    "warnings": [
+      "No SCHEDULE tag found; using default interval."
+    ]
+  },
+  "applied": {
+    "saves": [],
+    "deletes": [],
+    "ignored": [],
+    "scheduleSec": 3600,
+    "reflect": false
+  },
+  "reflection": null,
+  "error": null
+}

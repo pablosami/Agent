@@ -1,0 +1,16 @@
+[
+  {
+    "id": "l_test_1",
+    "type": "goal",
+    "content": "Keep me",
+    "text": "Keep me",
+    "importance": 0.7,
+    "created_at": "2026-05-08T18:31:52.273Z",
+    "deletion_guard": {
+      "min_age_days": 0,
+      "min_importance": 0.1,
+      "requires_reason": true
+    },
+    "history": []
+  }
+]

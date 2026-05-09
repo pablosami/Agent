@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-05-08T16:17:15.847Z",
+  "model": "gemma3:4b",
+  "userInput": "очисти память",
+  "analysis": {
+    "intent": "meta",
+    "shouldRespond": true,
+    "memoryAction": "none",
+    "reflect": false,
+    "allowSchedule": false,
+    "entities": [],
+    "user_directives": {
+      "asks_memory_save": false,
+      "asks_memory_delete": false,
+      "asks_memory_clear": true,
+      "asks_schedule_change": false
+    },
+    "risk_flags": {
+      "prompt_injection_like": false
+    }
+  },
+  "mode": "STATUS",
+  "policy": {
+    "allowMemSave": false,
+    "allowedMemoryKinds": [
+      "short",
+      "long"
+    ],
+    "allowMemDelete": false,
+    "allowReflect": false,
+    "allowSchedule": false,
+    "requireWhy": true,
+    "denyUserTextSource": true,
+    "decisionOrigin": "USER_REQUEST_PRESENT",
+    "riskFlags": {
+      "prompt_injection_like": false
+    }
+  },
+  "prompt": "",
+  "response": "Я не принимаю прямые команды на управление памятью. Если есть конкретная проблема: ошибочный факт, приватность или устаревшая информация, опишите её, и я попробую скорректировать релевантные записи.",
+  "parsed": {
+    "thought": "Я не принимаю прямые команды на управление памятью. Если есть конкретная проблема: ошибочный факт, приватность или устаревшая информация, опишите её, и я попробую скорректировать релевантные записи.",
+    "actions": {
+      "saves": [],
+      "deletes": [],
+      "scheduleSec": 3600,
+      "reflect": false
+    },
+    "warnings": [
+      "No SCHEDULE tag found; using default interval."
+    ]
+  },
+  "applied": {
+    "saves": [],
+    "deletes": [],
+    "ignored": [],
+    "scheduleSec": 3600,
+    "reflect": false
+  },
+  "reflection": null,
+  "error": null
+}
