@@ -17,25 +17,26 @@ function logParseError(tag, message) {
 }
 
 // Regex to capture technical tags. \s*[^\]]* allows trailing prose before the closing bracket.
-const RE_MEM_SAVE  = /^\s*\[MEM_SAVE\s+(short|long)\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
-const RE_MEM_DEL   = /^\s*\[MEM_DELETE\s+(short|long)\s+(\d+)(?:\s+[^\]]*)?\]/gm;
+const RE_MEM_SAVE  = /^\s*\[MEM_SAVE(?:\s+(short|long))?\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
+const RE_MEM_DEL   = /^\s*\[MEM_DELETE([^\]]*)\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_FOCUS = /^\s*\[MEM_FOCUS([^\]]*)\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT = /^\s*\[MEM_ADAPT\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT_CHALLENGE = /^\s*\[MEM_ADAPT_CHALLENGE\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT_WEAKEN = /^\s*\[MEM_ADAPT_WEAKEN\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
-const RE_SCHEDULE  = /^\s*\[SCHEDULE\s+(\d+)\]/m;
-const RE_REFLECT   = /^\s*\[REFLECT\]/m;
+const RE_SCHEDULE  = /^\s*\[SCHEDULE(?:\]\s*|\s+)(\d+)\]?/m;
+const RE_REFLECT   = /^\s*\[REFLECT\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_SEND_MSG  = /^\s*\[SEND_MESSAGE\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_HELP_ACTIONS = /^\s*\[HELP_ACTIONS\]/m;
 const RE_HELP_ACTION = /^\s*\[HELP_ACTION\s+"([^"]+)"\]/gm;
 
 function normalizeModelOutput(text) {
-  return String(text || "")
-    .replace(/```json/g, "")
-    .replace(/```/g, "")
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .trim();
+  if (!text) return '';
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‘’`]/g, "'")
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '');
 }
 
 function safeParseJson(raw) {
@@ -65,14 +66,20 @@ function fallbackSaveMalformedTag(tag, raw, thought) {
   };
 }
 
-function normalizeModelOutput(text) {
-  if (!text) return '';
-  return text
-    .replace(/\r\n/g, '\n')
-    .replace(/[“”„‟]/g, '"')
-    .replace(/[‘’`]/g, "'")
-    .replace(/\u00A0/g, ' ')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '');
+function extractProse(raw) {
+  let prose = raw.trim().replace(/^[–-]\s*/, '').trim();
+  const quoteMatch = prose.match(/^"([\s\S]+)"$/);
+  if (quoteMatch) return quoteMatch[1].trim();
+  return prose;
+}
+
+function determineProseType(prose) {
+  const lower = prose.toLowerCase();
+  if (lower.startsWith('initial assessment')) return 'insight';
+  if (lower.startsWith('question:')) return 'question';
+  if (lower.startsWith('consider')) return 'thought';
+  if (lower.startsWith('need to') || lower.startsWith('i should') || lower.startsWith('must')) return 'task';
+  return 'thought';
 }
 
 /**
@@ -106,10 +113,11 @@ function parseOutput(text) {
   };
 
   let match;
+  
   // MEM_SAVE
   RE_MEM_SAVE.lastIndex = 0;
   while ((match = RE_MEM_SAVE.exec(normalized)) !== null) {
-    const kind = match[1];
+    const kind = match[1]; // might be undefined
     const rawJson = match[2].trim();
     const parsed = safeParseJson(rawJson);
     if (parsed.ok) {
@@ -117,24 +125,39 @@ function parseOutput(text) {
       if (!obj.type || !obj.content) {
         logParseError('MEM_SAVE', `invalid_json_schema in MEM_SAVE, action ignored, thought preserved`);
         actions.parseErrorCount++;
-        actions.saves.push({ kind: 'short', entry: fallbackSaveMalformedTag('MEM_SAVE', rawJson, raw) });
+        actions.saves.push({ kind: kind || 'short', entry: fallbackSaveMalformedTag('MEM_SAVE', rawJson, text) });
       } else {
-        actions.saves.push({ kind, entry: obj });
+        actions.saves.push({ kind: kind || 'short', entry: obj });
       }
     } else {
-      logParseError('MEM_SAVE', `invalid_json in MEM_SAVE, action ignored, thought preserved`);
-      actions.parseErrorCount++;
-      actions.saves.push({ kind: 'short', entry: fallbackSaveMalformedTag('MEM_SAVE', rawJson, raw) });
+      const prose = extractProse(rawJson);
+      if (prose.length > 5 && !prose.startsWith('{')) {
+        logParseError('MEM_SAVE', `semantic_fallback for prose payload`);
+        const type = determineProseType(prose);
+        actions.saves.push({ kind: kind || 'short', entry: { type, content: prose, priority: 'normal', why: "Agent expressed save intent with prose payload." } });
+      } else {
+        logParseError('MEM_SAVE', `invalid_json in MEM_SAVE`);
+        if (prose.startsWith('{')) actions.parseErrorCount++;
+        if (!actions.helpRequests.includes('MEM_SAVE')) actions.helpRequests.push('MEM_SAVE');
+      }
     }
   }
 
   // MEM_DELETE
   RE_MEM_DEL.lastIndex = 0;
   while ((match = RE_MEM_DEL.exec(normalized)) !== null) {
-    const kind = match[1];
-    const id = Number.parseInt(match[2], 10);
-    if (Number.isFinite(id)) {
-      actions.deletes.push({ kind, id });
+    const insideArgs = match[1];
+    const trailingArgs = match[2];
+    let kind = undefined;
+    if (insideArgs.includes('short')) kind = 'short';
+    if (insideArgs.includes('long')) kind = 'long';
+    
+    const combined = insideArgs + " " + trailingArgs;
+    const ids = [...combined.matchAll(/#?(\d+)/g)].map(m => Number.parseInt(m[1], 10));
+    for (const id of ids) {
+      if (Number.isFinite(id)) {
+        actions.deletes.push({ kind, id });
+      }
     }
   }
 
@@ -144,7 +167,6 @@ function parseOutput(text) {
     const rawIds = match[1];
     const rawJson = match[2].trim();
     
-    // Check for IDs in brackets like [MEM_FOCUS #61 #38]
     if (rawIds) {
       const ids = [...rawIds.matchAll(/#(\d+)/g)].map(m => Number.parseInt(m[1], 10));
       if (ids.length > 0) {
@@ -152,17 +174,21 @@ function parseOutput(text) {
       }
     }
     
-    // Check for JSON payload like [MEM_FOCUS] {"topic":"..."}
     if (rawJson) {
       const parsed = safeParseJson(rawJson);
       if (parsed.ok && parsed.value.topic) {
         actions.focusTopics.push({ topic: parsed.value.topic, limit: parsed.value.limit || 3 });
       } else {
-        if (!rawJson.startsWith('{')) {
-          // just trailing text
+        const prose = extractProse(rawJson);
+        if (prose.length > 3 && !prose.startsWith('{')) {
+           actions.focusTopics.push({ topic: prose, limit: 3 });
+           logParseError('MEM_FOCUS', `semantic_fallback for prose topic`);
         } else {
-          logParseError('MEM_FOCUS', `invalid_json`);
-          actions.parseErrorCount++;
+          if (prose.startsWith('{')) {
+            logParseError('MEM_FOCUS', `invalid_json`);
+            actions.parseErrorCount++;
+          }
+          if (!actions.helpRequests.includes('MEM_FOCUS')) actions.helpRequests.push('MEM_FOCUS');
         }
       }
     }
@@ -176,8 +202,15 @@ function parseOutput(text) {
     if (parsed.ok && parsed.value.type && parsed.value.target && parsed.value.rule) {
       actions.adapts.push(parsed.value);
     } else {
-      logParseError('MEM_ADAPT', `invalid_json or schema in MEM_ADAPT`);
-      actions.parseErrorCount++;
+      const prose = extractProse(rawJson);
+      if (prose.length > 5 && !prose.startsWith('{')) {
+        actions.saves.push({ kind: 'short', entry: { type: 'thought', content: `Attempted to adapt: ${prose}`, priority: 'normal', why: 'Agent expressed adaptation intent with prose payload.' } });
+        logParseError('MEM_ADAPT', `semantic_fallback`);
+      } else {
+        logParseError('MEM_ADAPT', `invalid_json or schema`);
+        if (prose.startsWith('{')) actions.parseErrorCount++;
+      }
+      if (!actions.helpRequests.includes('MEM_ADAPT')) actions.helpRequests.push('MEM_ADAPT');
     }
   }
 
@@ -189,8 +222,13 @@ function parseOutput(text) {
     if (parsed.ok && parsed.value.id) {
       actions.adaptChallenges.push(parsed.value);
     } else {
-      logParseError('MEM_ADAPT_CHALLENGE', `invalid_json or schema`);
-      actions.parseErrorCount++;
+      const prose = extractProse(rawJson);
+      if (prose.length > 5 && !prose.startsWith('{')) {
+        actions.saves.push({ kind: 'short', entry: { type: 'thought', content: `Attempted to challenge: ${prose}`, priority: 'normal', why: 'Agent expressed challenge intent with prose.' } });
+      } else {
+        if (prose.startsWith('{')) actions.parseErrorCount++;
+      }
+      if (!actions.helpRequests.includes('MEM_ADAPT_CHALLENGE')) actions.helpRequests.push('MEM_ADAPT_CHALLENGE');
     }
   }
 
@@ -202,8 +240,13 @@ function parseOutput(text) {
     if (parsed.ok && parsed.value.id && typeof parsed.value.amount === 'number') {
       actions.adaptWeakens.push(parsed.value);
     } else {
-      logParseError('MEM_ADAPT_WEAKEN', `invalid_json or schema`);
-      actions.parseErrorCount++;
+      const prose = extractProse(rawJson);
+      if (prose.length > 5 && !prose.startsWith('{')) {
+        actions.saves.push({ kind: 'short', entry: { type: 'thought', content: `Attempted to weaken: ${prose}`, priority: 'normal', why: 'Agent expressed weaken intent with prose.' } });
+      } else {
+        if (prose.startsWith('{')) actions.parseErrorCount++;
+      }
+      if (!actions.helpRequests.includes('MEM_ADAPT_WEAKEN')) actions.helpRequests.push('MEM_ADAPT_WEAKEN');
     }
   }
 
@@ -217,11 +260,18 @@ function parseOutput(text) {
   }
 
   // REFLECT
-  if (RE_REFLECT.test(normalized)) {
+  RE_REFLECT.lastIndex = 0;
+  while ((match = RE_REFLECT.exec(normalized)) !== null) {
     actions.reflect = true;
+    const rawText = match[1] ? match[1].trim() : '';
+    const prose = extractProse(rawText);
+    if (prose.length > 5 && !prose.startsWith('{') && !prose.startsWith('[')) {
+      actions.saves.push({ kind: 'short', entry: { type: 'reflection_request', content: prose, priority: 'normal', why: 'Agent triggered reflection with prose.' } });
+      logParseError('REFLECT', `semantic_fallback for prose`);
+    }
   }
 
-  // SEND_MESSAGE (Now parses JSON)
+  // SEND_MESSAGE
   RE_SEND_MSG.lastIndex = 0;
   while ((match = RE_SEND_MSG.exec(normalized)) !== null) {
     const rawJson = match[1].trim();
@@ -231,7 +281,10 @@ function parseOutput(text) {
     } else {
       // Fallback if not json
       if (!rawJson.startsWith('{')) {
-         actions.messages.push(rawJson);
+         const prose = extractProse(rawJson);
+         if (prose.length > 0) {
+           actions.messages.push(prose);
+         }
       } else {
          logParseError('SEND_MESSAGE', `invalid_json`);
          actions.parseErrorCount++;
@@ -249,7 +302,7 @@ function parseOutput(text) {
     }
   }
 
-  // Bare tag -> help injection
+  // Bare tag -> help injection (Backup for missed tags)
   const expectedCounts = {
     'MEM_SAVE': actions.saves.length,
     'MEM_DELETE': actions.deletes.length,

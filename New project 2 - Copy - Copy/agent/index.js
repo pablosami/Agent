@@ -202,13 +202,20 @@ function executeActions(parsed) {
   // Удаления
   for (const del of parsed.deletes) {
     try {
-      const deleted = del.kind === 'short'
-        ? mem.deleteShort(del.id)
-        : mem.deleteLong(del.id);
+      let deleted = false;
+      if (del.kind === 'short') {
+        deleted = mem.deleteShort(del.id);
+      } else if (del.kind === 'long') {
+        deleted = mem.deleteLong(del.id);
+      } else {
+        // kind == undefined -> try both
+        deleted = mem.deleteShort(del.id) || mem.deleteLong(del.id);
+      }
+      
       if (deleted) {
         results.deleted++;
       } else {
-        logParseError('EXECUTE_DELETE', `ID ${del.id} не найден в ${del.kind}`);
+        logParseError('EXECUTE_DELETE', `ID ${del.id} не найден${del.kind ? ' в ' + del.kind : ''}`);
       }
     } catch (err) {
       results.errors.push(`DELETE ${del.kind} #${del.id}: ${err.message}`);
