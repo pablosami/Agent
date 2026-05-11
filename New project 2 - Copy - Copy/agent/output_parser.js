@@ -25,6 +25,8 @@ const RE_MEM_ADAPT_WEAKEN = /^\s*\[MEM_ADAPT_WEAKEN\]\s*(.+)$/gm;
 const RE_SCHEDULE  = /^\s*\[SCHEDULE\s+(\d+)\]/m;
 const RE_REFLECT   = /^\s*\[REFLECT\]/m;
 const RE_SEND_MSG  = /^\s*\[SEND_MESSAGE\]\s*(.+)$/gm;
+const RE_HELP_ACTIONS = /^\s*\[HELP_ACTIONS\]/m;
+const RE_HELP_ACTION = /^\s*\[HELP_ACTION\s+"([^"]+)"\]/gm;
 
 function normalizeModelOutput(text) {
   return String(text || "")
@@ -73,6 +75,7 @@ function parseOutput(text) {
     adaptChallenges: [],
     adaptWeakens: [],
     messages: [],
+    helpRequests: [],
     scheduleSec: config.defaultIntervalSec,
     reflect: false,
     parseErrorCount: 0
@@ -182,9 +185,19 @@ function parseOutput(text) {
     }
   }
 
+  // HELP_ACTIONS
+  if (RE_HELP_ACTIONS.test(normalized)) {
+    actions.helpRequests.push("ALL");
+  } else {
+    RE_HELP_ACTION.lastIndex = 0;
+    while ((match = RE_HELP_ACTION.exec(normalized)) !== null) {
+      actions.helpRequests.push(match[1].trim());
+    }
+  }
+
   // Очищаем оригинальный текст от тегов
   actions.thought = lines
-    .filter(line => !/^\s*\[(MEM_SAVE|MEM_DELETE|MEM_ADAPT|MEM_ADAPT_CHALLENGE|MEM_ADAPT_WEAKEN|SCHEDULE|REFLECT|SEND_MESSAGE)\b/.test(line))
+    .filter(line => !/^\s*\[(MEM_SAVE|MEM_DELETE|MEM_ADAPT|MEM_ADAPT_CHALLENGE|MEM_ADAPT_WEAKEN|SCHEDULE|REFLECT|SEND_MESSAGE|HELP_ACTIONS|HELP_ACTION)\b/.test(line))
     .join('\n')
     .trim();
 

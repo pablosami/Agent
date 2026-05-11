@@ -44,7 +44,8 @@ const memState = {
   pendingMessages: [],
   chatHistory: loadChatHistory(),
   lastReflectTime: 0,
-  consecutiveParseErrors: 0
+  consecutiveParseErrors: 0,
+  requestedHelp: []
 };
 
 // --- Функция приема сообщений от пользователя (вызывается из веб-интерфейса) ---
@@ -241,7 +242,7 @@ async function runAgent() {
   const messages = [...memState.pendingMessages];
   memState.pendingMessages = [];
 
-  const prompt = buildContext(memState.thoughtHistory, messages, memState.consecutiveParseErrors);
+  const prompt = buildContext(memState.thoughtHistory, messages, memState.consecutiveParseErrors, memState.requestedHelp);
   let response = '';
   let parsed = null;
   let error = null;
@@ -289,6 +290,7 @@ async function runAgent() {
     }
 
     nextScheduleSec = parsed.scheduleSec;
+    memState.requestedHelp = parsed.helpRequests || [];
 
     // Вывод мысли агента и добавление в историю
     if (parsed.thought) {

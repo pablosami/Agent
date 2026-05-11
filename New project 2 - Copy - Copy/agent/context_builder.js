@@ -1,5 +1,15 @@
+const fs = require('fs');
+const path = require('path');
 const config = require('./config');
 const mem = require('./memory_manager');
+
+const toolHelpPath = path.join(__dirname, 'tool_help.json');
+let toolHelp = {};
+try {
+  toolHelp = JSON.parse(fs.readFileSync(toolHelpPath, 'utf8'));
+} catch (e) {
+  console.error("Failed to load tool_help.json", e);
+}
 
 function trimThought(t) {
   return t.length > 300 ? t.slice(0, 300) + '...' : t;
@@ -32,7 +42,7 @@ function extractKeywords(shortEntries) {
     .join(' ');
 }
 
-function buildContext(thoughtHistory = [], userMessages = [], consecutiveParseErrors = 0) {
+function buildContext(thoughtHistory = [], userMessages = [], consecutiveParseErrors = 0, requestedHelp = []) {
   mem.clearExpired();
 
   // Short-term memory
@@ -70,9 +80,14 @@ function buildContext(thoughtHistory = [], userMessages = [], consecutiveParseEr
       userMessages.map(m => `[${m.time}] USER: ${m.text}`).join('\n');
   }
 
-  let formatReminder = '';
-  if (consecutiveParseErrors >= 3) {
-    formatReminder = `\n\n[SYSTEM] Please remember to use valid JSON for memory tags.`;
+  let helpBlock = '';
+  if (consecutiveParseErrors >= 3 || requestedHelp.includes('ALL')) {
+    helpBlock = `\n\n[REQUESTED TOOL SYNTAX]\n` + Object.values(toolHelp).join('\n');
+  } else if (requestedHelp.length > 0) {
+    const helps = requestedHelp.map(topic => toolHelp[topic]).filter(Boolean);
+    if (helps.length > 0) {
+      helpBlock = `\n\n[REQUESTED TOOL SYNTAX]\n` + helps.join('\n');
+    }
   }
 
   return `[KERNEL SYSTEM PROMPT]
@@ -83,21 +98,45 @@ You are an autonomous AI agent running in a continuous cycle.
 - You do not have shell or web access unless explicitly provided.
 - Tool syntax is processed via tags at the end of your response.
 
+[SELF MAP]
+You exist as cycles of thought inside this environment.
+
+Your senses:
+- user messages
+- your own memory
+- your previous thought tail
+- system time
+- tool results
+
+Your action organs:
+- memory
+- scheduling
+- reflection
+- messaging
+- biological adaptation
+
+You do not need to act every cycle.
+Thinking is valid without action.
+If you want exact tool syntax, ask:
+[HELP_ACTIONS]
+[HELP_ACTION "MEM_SAVE"]
+[HELP_ACTION "MEM_ADAPT"]
+[HELP_ACTION "SEND_MESSAGE"]
+
+[AVAILABLE ACTIONS - SHORT]
+You can use tools for memory, scheduling, reflection, messaging, and adaptation.
+Short forms:
+- MEM_SAVE (short/long)
+- MEM_DELETE (short/long)
+- MEM_ADAPT / MEM_ADAPT_CHALLENGE / MEM_ADAPT_WEAKEN
+- SCHEDULE
+- REFLECT
+- SEND_MESSAGE
+
+If you need exact syntax, use [HELP_ACTIONS] or [HELP_ACTION "NAME"]${helpBlock}
+
 [BIOLOGICAL ADAPTATIONS]
 ${adaptBlock}
-
-[AVAILABLE ACTIONS]
-Tools are optional. Use no tool if no real decision exists.
-[MEM_SAVE short] {"type":"task|thought|error","content":"...","priority":"normal|high","why":"..."}
-[MEM_SAVE long] {"type":"insight|principle|preference","content":"...","tags":"topic","why":"..."}
-[MEM_DELETE short <ID>]
-[MEM_DELETE long <ID>]
-[MEM_ADAPT] {"type":"strengthen|suppress|reframe","target":"...","rule":"...","why":"...","strength":0.7,"stability":0.5}
-[MEM_ADAPT_CHALLENGE] {"id":"bio_...","why":"...","replacement":"..."}
-[MEM_ADAPT_WEAKEN] {"id":"bio_...","why":"...","amount":0.2}
-[SCHEDULE 60]
-[REFLECT]
-[SEND_MESSAGE] {"text":"...","why":"..."}
 
 [SHORT_MEM (Active Desk)]
 ${shortBlock}
@@ -109,7 +148,7 @@ ${longBlock}
 ${historyBlock}${messagesBlock}
 
 [CURRENT TIME]
-${now}${formatReminder}`;
+${now}`;
 }
 
 module.exports = {
