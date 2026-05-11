@@ -175,6 +175,22 @@ function searchLongMem(keywords, limit) {
 }
 
 /**
+ * Поиск по краткосрочной памяти (через JS фильтрацию, так как записей мало).
+ */
+function searchShortMem(keywords) {
+  const query = String(keywords || '').trim().toLowerCase();
+  if (!query) return [];
+  const words = query.split(/\s+/).filter(w => w.length > 1);
+  if (!words.length) return [];
+  
+  const allShort = getShortMem(100);
+  return allShort.filter(item => {
+    const text = (item.content + ' ' + item.type).toLowerCase();
+    return words.some(w => text.includes(w));
+  });
+}
+
+/**
  * Получить записи по массиву ID (ищет и в short_mem, и в long_mem).
  */
 function getRecordsByIds(ids) {
@@ -276,6 +292,7 @@ module.exports = {
   getShortMem,
   getLongMem,
   searchLongMem,
+  searchShortMem,
   getRecordsByIds,
   clearExpired,
   countShort,

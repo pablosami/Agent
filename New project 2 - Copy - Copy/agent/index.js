@@ -300,6 +300,20 @@ async function runAgent() {
         memState.focusItems.splice(i, 1);
       }
     }
+    if (parsed.focusTopics && parsed.focusTopics.length > 0) {
+      if (!parsed.focusIds) parsed.focusIds = [];
+      for (const req of parsed.focusTopics) {
+        const foundShort = mem.searchShortMem(req.topic).slice(0, req.limit || 3);
+        const foundLong = mem.searchLongMem(req.topic, req.limit || 3);
+        const combined = [...foundShort, ...foundLong].slice(0, req.limit || 3);
+        for (const item of combined) {
+          if (!parsed.focusIds.includes(item.id)) {
+            parsed.focusIds.push(item.id);
+          }
+        }
+      }
+    }
+
     if (parsed.focusIds && parsed.focusIds.length > 0) {
       for (const id of parsed.focusIds) {
         const existing = memState.focusItems.find(x => x.id === id);

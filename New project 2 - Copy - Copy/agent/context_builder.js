@@ -150,6 +150,7 @@ ${adaptBlock}
 ${shortBlock}
 
 [LONG_MEM (Archive Shelf)]
+Your long-term memory is your shelf. Move everything from short-term memory here that is completed, thought over, or just want to keep for a long time. Do not be afraid to write here frequently.
 ${longBlock}
 
 ${focusBlock}[WORKING CONTEXT (Tail of previous thought)]

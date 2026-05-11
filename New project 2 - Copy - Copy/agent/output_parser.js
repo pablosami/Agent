@@ -19,7 +19,7 @@ function logParseError(tag, message) {
 // Regex to capture technical tags. \s*[^\]]* allows trailing prose before the closing bracket.
 const RE_MEM_SAVE  = /^\s*\[MEM_SAVE\s+(short|long)\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_DEL   = /^\s*\[MEM_DELETE\s+(short|long)\s+(\d+)(?:\s+[^\]]*)?\]/gm;
-const RE_MEM_FOCUS = /^\s*\[MEM_FOCUS\s+(.+)\]/gm;
+const RE_MEM_FOCUS = /^\s*\[MEM_FOCUS([^\]]*)\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT = /^\s*\[MEM_ADAPT\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT_CHALLENGE = /^\s*\[MEM_ADAPT_CHALLENGE\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT_WEAKEN = /^\s*\[MEM_ADAPT_WEAKEN\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
@@ -65,18 +65,29 @@ function fallbackSaveMalformedTag(tag, raw, thought) {
   };
 }
 
+function normalizeModelOutput(text) {
+  if (!text) return '';
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‘’`]/g, "'")
+    .replace(/\u00A0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '');
+}
+
 /**
- * Основной парсер ответа модели.
+ * Парсер вывода агента.
+ * Вытаскивает все команды из конца (или любой части) текста.
+ * Поддерживает множественные действия за один ответ.
  */
 function parseOutput(text) {
-  const raw = String(text || '');
-  const lines = raw.split(/\r?\n/);
+  const normalizedFull = normalizeModelOutput(text);
+  const lines = normalizedFull.split('\n');
   
   // Берём только последние 40 строк для поиска тегов
   const tailStart = Math.max(0, lines.length - 40);
   const tail = lines.slice(tailStart).join('\n');
-
-  const normalized = normalizeModelOutput(tail);
+  const normalized = tail; // already normalized by normalizeModelOutput
 
   const actions = {
     thought: '',
@@ -88,6 +99,7 @@ function parseOutput(text) {
     messages: [],
     helpRequests: [],
     focusIds: [],
+    focusTopics: [],
     scheduleSec: config.defaultIntervalSec,
     reflect: false,
     parseErrorCount: 0
@@ -130,8 +142,30 @@ function parseOutput(text) {
   RE_MEM_FOCUS.lastIndex = 0;
   while ((match = RE_MEM_FOCUS.exec(normalized)) !== null) {
     const rawIds = match[1];
-    const ids = [...rawIds.matchAll(/#(\d+)/g)].map(m => Number.parseInt(m[1], 10));
-    actions.focusIds.push(...ids);
+    const rawJson = match[2].trim();
+    
+    // Check for IDs in brackets like [MEM_FOCUS #61 #38]
+    if (rawIds) {
+      const ids = [...rawIds.matchAll(/#(\d+)/g)].map(m => Number.parseInt(m[1], 10));
+      if (ids.length > 0) {
+        actions.focusIds.push(...ids);
+      }
+    }
+    
+    // Check for JSON payload like [MEM_FOCUS] {"topic":"..."}
+    if (rawJson) {
+      const parsed = safeParseJson(rawJson);
+      if (parsed.ok && parsed.value.topic) {
+        actions.focusTopics.push({ topic: parsed.value.topic, limit: parsed.value.limit || 3 });
+      } else {
+        if (!rawJson.startsWith('{')) {
+          // just trailing text
+        } else {
+          logParseError('MEM_FOCUS', `invalid_json`);
+          actions.parseErrorCount++;
+        }
+      }
+    }
   }
 
   // MEM_ADAPT
@@ -222,7 +256,8 @@ function parseOutput(text) {
     'MEM_ADAPT': actions.adapts.length,
     'MEM_ADAPT_CHALLENGE': actions.adaptChallenges.length,
     'MEM_ADAPT_WEAKEN': actions.adaptWeakens.length,
-    'SEND_MESSAGE': actions.messages.length
+    'SEND_MESSAGE': actions.messages.length,
+    'MEM_FOCUS': actions.focusIds.length + actions.focusTopics.length // approximate
   };
 
   for (const [tag, count] of Object.entries(expectedCounts)) {
