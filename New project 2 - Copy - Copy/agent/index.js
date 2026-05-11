@@ -49,7 +49,6 @@ const memState = {
   focusItems: []
 };
 
-// --- Функция приема сообщений от пользователя (вызывается из веб-интерфейса) ---
 function pushUserMessage(text) {
   const msg = { sender: 'user', time: new Date().toISOString(), text };
   memState.pendingMessages.push(msg);
@@ -59,6 +58,14 @@ function pushUserMessage(text) {
   // Прерываем ожидание и заставляем агента подумать прямо сейчас
   clearScheduledRun();
   runSafely(runAgent);
+}
+
+function injectSystemMessage(text) {
+  memState.pendingMessages.push({
+    sender: 'system',
+    time: new Date().toISOString(),
+    text
+  });
 }
 
 // --- Запрос к Ollama ---
@@ -383,5 +390,6 @@ module.exports = {
   runReflection,
   main,
   pushUserMessage,
+  injectSystemMessage,
   getChatHistory: () => memState.chatHistory
 };
