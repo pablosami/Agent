@@ -43,15 +43,30 @@ function safeParseJson(raw) {
   try {
     return { ok: true, value: JSON.parse(raw) };
   } catch (e) {
-    try {
-      const start = raw.indexOf('{');
-      const end = raw.lastIndexOf('}');
-      if (start >= 0 && end > start) {
-        const extracted = raw.substring(start, end + 1);
-        return { ok: true, value: JSON.parse(extracted) };
+    const start = raw.indexOf('{');
+    if (start >= 0) {
+      let openBraces = 0;
+      let inString = false;
+      let escape = false;
+      for (let i = start; i < raw.length; i++) {
+        const char = raw[i];
+        if (!escape && char === '"') inString = !inString;
+        if (!inString) {
+          if (char === '{') openBraces++;
+          if (char === '}') openBraces--;
+        }
+        if (char === '\\' && !escape) escape = true;
+        else escape = false;
+        
+        if (openBraces === 0) {
+          const extracted = raw.substring(start, i + 1);
+          try {
+            return { ok: true, value: JSON.parse(extracted) };
+          } catch(e2) {
+            break;
+          }
+        }
       }
-    } catch(e2) {
-      // ignore
     }
     return { ok: false, error: e.message };
   }
@@ -127,6 +142,14 @@ function parseOutput(text) {
         actions.parseErrorCount++;
         actions.saves.push({ kind: kind || 'short', entry: fallbackSaveMalformedTag('MEM_SAVE', rawJson, text) });
       } else {
+        if (Array.isArray(obj.tags)) {
+          obj.tags = obj.tags.join(', ');
+        } else if (typeof obj.tags === 'string') {
+          obj.tags = obj.tags.split(',').map(s => s.trim()).join(', ');
+        }
+        if (!obj.why) {
+          obj.why = "Agent expressed stable save intent.";
+        }
         actions.saves.push({ kind: kind || 'short', entry: obj });
       }
     } else {
