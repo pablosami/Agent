@@ -17,14 +17,14 @@ function logParseError(tag, message) {
 }
 
 // Regex to capture technical tags. \s*[^\]]* allows trailing prose before the closing bracket.
-const RE_MEM_SAVE  = /^\s*\[MEM_SAVE\s+(short|long)\]\s*(.+)$/gm;
+const RE_MEM_SAVE  = /^\s*\[MEM_SAVE\s+(short|long)\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_DEL   = /^\s*\[MEM_DELETE\s+(short|long)\s+(\d+)(?:\s+[^\]]*)?\]/gm;
-const RE_MEM_ADAPT = /^\s*\[MEM_ADAPT\]\s*(.+)$/gm;
-const RE_MEM_ADAPT_CHALLENGE = /^\s*\[MEM_ADAPT_CHALLENGE\]\s*(.+)$/gm;
-const RE_MEM_ADAPT_WEAKEN = /^\s*\[MEM_ADAPT_WEAKEN\]\s*(.+)$/gm;
+const RE_MEM_ADAPT = /^\s*\[MEM_ADAPT\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
+const RE_MEM_ADAPT_CHALLENGE = /^\s*\[MEM_ADAPT_CHALLENGE\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
+const RE_MEM_ADAPT_WEAKEN = /^\s*\[MEM_ADAPT_WEAKEN\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_SCHEDULE  = /^\s*\[SCHEDULE\s+(\d+)\]/m;
 const RE_REFLECT   = /^\s*\[REFLECT\]/m;
-const RE_SEND_MSG  = /^\s*\[SEND_MESSAGE\]\s*(.+)$/gm;
+const RE_SEND_MSG  = /^\s*\[SEND_MESSAGE\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_HELP_ACTIONS = /^\s*\[HELP_ACTIONS\]/m;
 const RE_HELP_ACTION = /^\s*\[HELP_ACTION\s+"([^"]+)"\]/gm;
 
@@ -41,6 +41,16 @@ function safeParseJson(raw) {
   try {
     return { ok: true, value: JSON.parse(raw) };
   } catch (e) {
+    try {
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        const extracted = raw.substring(start, end + 1);
+        return { ok: true, value: JSON.parse(extracted) };
+      }
+    } catch(e2) {
+      // ignore
+    }
     return { ok: false, error: e.message };
   }
 }

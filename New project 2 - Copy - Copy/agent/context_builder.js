@@ -24,11 +24,12 @@ function trimLong(e) {
 }
 
 function formatShortEntry(entry) {
-  return `[#${entry.id}] ${trimShort(entry)}`;
+  return `[#${entry.id} | ${entry.type}] ${trimShort(entry)}`;
 }
 
 function formatLongEntry(entry) {
-  return `[#${entry.id}] ${trimLong(entry)}`;
+  const tagsStr = entry.tags ? ` | ${entry.tags}` : '';
+  return `[#${entry.id} | ${entry.type}${tagsStr}] ${trimLong(entry)}`;
 }
 
 function extractKeywords(shortEntries) {
