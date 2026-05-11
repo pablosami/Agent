@@ -228,7 +228,7 @@ function parseOutput(text) {
   for (const [tag, count] of Object.entries(expectedCounts)) {
     const rawCount = (normalized.match(new RegExp(`\\[${tag}(?=[\\s\\]])`, 'g')) || []).length;
     if (rawCount > count) {
-      if (tag === 'MEM_SAVE' && /\\[MEM_SAVE\\s+#\\d+/.test(normalized)) {
+      if (tag === 'MEM_SAVE' && /\[MEM_SAVE\s+#\d+/.test(normalized)) {
          logParseError('MEM_SAVE', 'Detected [MEM_SAVE #ID], probably intended MEM_FOCUS.');
          if (!actions.helpRequests.includes('MEM_FOCUS')) actions.helpRequests.push('MEM_FOCUS');
       } else {
