@@ -45,7 +45,8 @@ const memState = {
   chatHistory: loadChatHistory(),
   lastReflectTime: 0,
   consecutiveParseErrors: 0,
-  requestedHelp: []
+  requestedHelp: [],
+  focusItems: []
 };
 
 // --- Функция приема сообщений от пользователя (вызывается из веб-интерфейса) ---
@@ -242,7 +243,7 @@ async function runAgent() {
   const messages = [...memState.pendingMessages];
   memState.pendingMessages = [];
 
-  const prompt = buildContext(memState.thoughtHistory, messages, memState.consecutiveParseErrors, memState.requestedHelp);
+  const prompt = buildContext(memState.thoughtHistory, messages, memState.consecutiveParseErrors, memState.requestedHelp, memState.focusItems.map(f => f.id));
   let response = '';
   let parsed = null;
   let error = null;
@@ -289,8 +290,30 @@ async function runAgent() {
       }
     }
 
-    nextScheduleSec = parsed.scheduleSec;
+    nextScheduleSec = Math.min(parsed.scheduleSec, 900); // max 15 минут
     memState.requestedHelp = parsed.helpRequests || [];
+
+    // Обновление фокуса
+    for (let i = memState.focusItems.length - 1; i >= 0; i--) {
+      memState.focusItems[i].ttl -= 1;
+      if (memState.focusItems[i].ttl <= 0) {
+        memState.focusItems.splice(i, 1);
+      }
+    }
+    if (parsed.focusIds && parsed.focusIds.length > 0) {
+      for (const id of parsed.focusIds) {
+        const existing = memState.focusItems.find(x => x.id === id);
+        if (existing) {
+          existing.ttl = 3;
+        } else {
+          memState.focusItems.push({ id, ttl: 3 });
+        }
+      }
+    }
+    // Ограничение до 3 элементов
+    if (memState.focusItems.length > 3) {
+      memState.focusItems = memState.focusItems.slice(-3);
+    }
 
     // Вывод мысли агента и добавление в историю
     if (parsed.thought) {
@@ -328,6 +351,11 @@ function main() {
   console.log(`[AGENT] БД: ${path.join(config.memoryDir, 'agent.db')}`);
   console.log(`[AGENT] Записей в STM: ${mem.countShort()}, LTM: ${mem.countLong()}`);
   mem.initBaseAdaptations();
+  memState.pendingMessages.push({
+    sender: 'system',
+    time: new Date().toISOString(),
+    text: '[SYSTEM] Environment started (start.bat was executed).'
+  });
   runSafely(runAgent);
 }
 

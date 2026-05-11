@@ -19,6 +19,7 @@ function logParseError(tag, message) {
 // Regex to capture technical tags. \s*[^\]]* allows trailing prose before the closing bracket.
 const RE_MEM_SAVE  = /^\s*\[MEM_SAVE\s+(short|long)\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_DEL   = /^\s*\[MEM_DELETE\s+(short|long)\s+(\d+)(?:\s+[^\]]*)?\]/gm;
+const RE_MEM_FOCUS = /^\s*\[MEM_FOCUS\s+(.+)\]/gm;
 const RE_MEM_ADAPT = /^\s*\[MEM_ADAPT\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT_CHALLENGE = /^\s*\[MEM_ADAPT_CHALLENGE\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
 const RE_MEM_ADAPT_WEAKEN = /^\s*\[MEM_ADAPT_WEAKEN\]\s*([\s\S]*?)(?=\n\s*\[|$)/gm;
@@ -86,6 +87,7 @@ function parseOutput(text) {
     adaptWeakens: [],
     messages: [],
     helpRequests: [],
+    focusIds: [],
     scheduleSec: config.defaultIntervalSec,
     reflect: false,
     parseErrorCount: 0
@@ -122,6 +124,14 @@ function parseOutput(text) {
     if (Number.isFinite(id)) {
       actions.deletes.push({ kind, id });
     }
+  }
+
+  // MEM_FOCUS
+  RE_MEM_FOCUS.lastIndex = 0;
+  while ((match = RE_MEM_FOCUS.exec(normalized)) !== null) {
+    const rawIds = match[1];
+    const ids = [...rawIds.matchAll(/#(\d+)/g)].map(m => Number.parseInt(m[1], 10));
+    actions.focusIds.push(...ids);
   }
 
   // MEM_ADAPT
@@ -205,9 +215,33 @@ function parseOutput(text) {
     }
   }
 
+  // Bare tag -> help injection
+  const expectedCounts = {
+    'MEM_SAVE': actions.saves.length,
+    'MEM_DELETE': actions.deletes.length,
+    'MEM_ADAPT': actions.adapts.length,
+    'MEM_ADAPT_CHALLENGE': actions.adaptChallenges.length,
+    'MEM_ADAPT_WEAKEN': actions.adaptWeakens.length,
+    'SEND_MESSAGE': actions.messages.length
+  };
+
+  for (const [tag, count] of Object.entries(expectedCounts)) {
+    const rawCount = (normalized.match(new RegExp(`\\[${tag}(?=[\\s\\]])`, 'g')) || []).length;
+    if (rawCount > count) {
+      if (tag === 'MEM_SAVE' && /\\[MEM_SAVE\\s+#\\d+/.test(normalized)) {
+         logParseError('MEM_SAVE', 'Detected [MEM_SAVE #ID], probably intended MEM_FOCUS.');
+         if (!actions.helpRequests.includes('MEM_FOCUS')) actions.helpRequests.push('MEM_FOCUS');
+      } else {
+         if (!actions.helpRequests.includes(tag)) {
+           actions.helpRequests.push(tag);
+         }
+      }
+    }
+  }
+
   // Очищаем оригинальный текст от тегов
   actions.thought = lines
-    .filter(line => !/^\s*\[(MEM_SAVE|MEM_DELETE|MEM_ADAPT|MEM_ADAPT_CHALLENGE|MEM_ADAPT_WEAKEN|SCHEDULE|REFLECT|SEND_MESSAGE|HELP_ACTIONS|HELP_ACTION)\b/.test(line))
+    .filter(line => !/^\s*\[(MEM_SAVE|MEM_DELETE|MEM_FOCUS|MEM_ADAPT|MEM_ADAPT_CHALLENGE|MEM_ADAPT_WEAKEN|SCHEDULE|REFLECT|SEND_MESSAGE|HELP_ACTIONS|HELP_ACTION)\b/.test(line))
     .join('\n')
     .trim();
 

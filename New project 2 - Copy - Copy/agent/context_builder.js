@@ -43,7 +43,7 @@ function extractKeywords(shortEntries) {
     .join(' ');
 }
 
-function buildContext(thoughtHistory = [], userMessages = [], consecutiveParseErrors = 0, requestedHelp = []) {
+function buildContext(thoughtHistory = [], userMessages = [], consecutiveParseErrors = 0, requestedHelp = [], focusIds = []) {
   mem.clearExpired();
 
   // Short-term memory
@@ -64,6 +64,12 @@ function buildContext(thoughtHistory = [], userMessages = [], consecutiveParseEr
   const adaptBlock = adaptations.length > 0
     ? adaptations.map(a => `- [${a.id}] ${a.target}: ${a.rule} ${a.challenge_count > 0 ? `(chal:${a.challenge_count})` : ''}`).join('\n')
     : '(no active adaptations)';
+
+  // Focused Memory
+  const focusedRecords = mem.getRecordsByIds(focusIds);
+  const focusBlock = focusedRecords.length > 0
+    ? `[FOCUSED MEMORY]\n` + focusedRecords.map(r => `[#${r.id} | ${r.memory_type} | ${r.type}${r.tags ? ` | ${r.tags}` : ''}]\n${r.content}`).join('\n\n') + `\n\n`
+    : '';
 
   const now = new Date().toISOString();
 
@@ -129,6 +135,7 @@ You can use tools for memory, scheduling, reflection, messaging, and adaptation.
 Short forms:
 - MEM_SAVE (short/long)
 - MEM_DELETE (short/long)
+- MEM_FOCUS
 - MEM_ADAPT / MEM_ADAPT_CHALLENGE / MEM_ADAPT_WEAKEN
 - SCHEDULE
 - REFLECT
@@ -145,7 +152,7 @@ ${shortBlock}
 [LONG_MEM (Archive Shelf)]
 ${longBlock}
 
-[WORKING CONTEXT (Tail of previous thought)]
+${focusBlock}[WORKING CONTEXT (Tail of previous thought)]
 ${historyBlock}${messagesBlock}
 
 [CURRENT TIME]

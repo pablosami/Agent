@@ -17,6 +17,9 @@ const stmtDeleteLong  = db.prepare('DELETE FROM long_mem WHERE id = ?');
 const stmtExistsShort = db.prepare('SELECT id FROM short_mem WHERE id = ?');
 const stmtExistsLong  = db.prepare('SELECT id FROM long_mem WHERE id = ?');
 
+const stmtGetShortById = db.prepare('SELECT * FROM short_mem WHERE id = ?');
+const stmtGetLongById  = db.prepare('SELECT * FROM long_mem WHERE id = ?');
+
 const stmtGetShort = db.prepare(`
   SELECT * FROM short_mem
   ORDER BY
@@ -172,6 +175,30 @@ function searchLongMem(keywords, limit) {
 }
 
 /**
+ * Получить записи по массиву ID (ищет и в short_mem, и в long_mem).
+ */
+function getRecordsByIds(ids) {
+  if (!ids || ids.length === 0) return [];
+  const results = [];
+  for (const id of ids) {
+    const numId = Number(id);
+    if (!Number.isFinite(numId)) continue;
+    let rec = stmtGetShortById.get(numId);
+    if (rec) {
+      rec.memory_type = 'short';
+      results.push(rec);
+      continue;
+    }
+    rec = stmtGetLongById.get(numId);
+    if (rec) {
+      rec.memory_type = 'long';
+      results.push(rec);
+    }
+  }
+  return results;
+}
+
+/**
  * Удалить истёкшие записи из краткосрочной памяти.
  * @returns {number} количество удалённых записей
  */
@@ -249,6 +276,7 @@ module.exports = {
   getShortMem,
   getLongMem,
   searchLongMem,
+  getRecordsByIds,
   clearExpired,
   countShort,
   countLong,
