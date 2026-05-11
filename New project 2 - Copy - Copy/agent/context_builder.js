@@ -1,51 +1,117 @@
 const config = require('./config');
-const { getContextMemory } = require('./memory_manager');
+const mem = require('./memory_manager');
 
-function formatEntries(entries) {
-  if (!entries.length) return '[]';
-  return JSON.stringify(entries, null, 2);
+function trimThought(t) {
+  return t.length > 300 ? t.slice(0, 300) + '...' : t;
 }
 
-async function buildPrompt() {
-  const { shortContext, longContext, shortCount, longCount } = await getContextMemory();
-  return `You are an autonomous local reflection agent. Work without a user in this cycle.
-Reply in Russian.
+function trimShort(e) {
+  return e.content.length > 200 ? e.content.slice(0, 200) + '...' : e.content;
+}
 
-Goal: keep a compact task list, develop useful insights, avoid memory spam, and schedule the next meaningful step.
+function trimLong(e) {
+  return e.content.length > 150 ? e.content.slice(0, 150) + '...' : e.content;
+}
 
-Security limits:
-- Do not ask to run shell commands and do not try to control the OS.
-- Manage only memory and scheduling through tags at the end of the response.
-- Be brief.
+function formatShortEntry(entry) {
+  return `[#${entry.id}] ${trimShort(entry)}`;
+}
 
-=== SHORT MEMORY (${shortContext.length}/${shortCount}) ===
-${formatEntries(shortContext)}
+function formatLongEntry(entry) {
+  return `[#${entry.id}] ${trimLong(entry)}`;
+}
 
-=== LONG MEMORY (${longContext.length}/${longCount}) ===
-${formatEntries(longContext)}
+function extractKeywords(shortEntries) {
+  return shortEntries
+    .map(e => e.content)
+    .join(' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2)
+    .slice(0, 15)
+    .join(' ');
+}
 
-=== CURRENT TIME ===
-${new Date().toISOString()}
+function buildContext(thoughtHistory = [], userMessages = [], consecutiveParseErrors = 0) {
+  mem.clearExpired();
 
-End every answer with control tags. The parser reads only these tags:
-[MEM_SAVE short] {"type":"task","content":"...","priority":"normal","why":"Useful because ..."}
-[MEM_SAVE long] {"type":"insight","content":"...","tags":["topic"],"why":"Useful because ..."}
-[MEM_DELETE short m_2026_05_08_0001 incorrect duplicate]
-[MEM_PLAN] [{"op":"PIN","kind":"short","id":"m_2026_05_08_0001","params":{"pin_reason":"Long-term goal","deletion_guard":{"min_age_days":14,"min_importance":0.25,"requires_reason":true}},"why":"Stable goal likely needed later"}]
-[NOTIFY_AFTER] {"after_ms":30000,"text":"Reminder text","why":"User-visible follow-up is useful"}
-[SCHEDULE 3600]
+  // Short-term memory
+  const shortEntries = mem.getShortMem(config.maxShortMemInContext);
+  const shortBlock = shortEntries.length > 0
+    ? shortEntries.slice(-5).map(formatShortEntry).join('\n')
+    : '(empty)';
+
+  // Long-term memory
+  const keywords = extractKeywords(shortEntries);
+  const longEntries = mem.searchLongMem(keywords, config.maxLongMemInContext);
+  const longBlock = longEntries.length > 0
+    ? longEntries.slice(0, 20).map(formatLongEntry).join('\n')
+    : '(empty)';
+
+  // Adaptations
+  const adaptations = mem.getAdaptations();
+  const adaptBlock = adaptations.length > 0
+    ? adaptations.map(a => `- [${a.id}] ${a.target}: ${a.rule} ${a.challenge_count > 0 ? `(chal:${a.challenge_count})` : ''}`).join('\n')
+    : '(no active adaptations)';
+
+  const now = new Date().toISOString();
+
+  // Working context (last thought only)
+  let historyBlock = '(Empty. This is your first cycle.)';
+  if (thoughtHistory.length > 0) {
+    const lastThought = thoughtHistory[thoughtHistory.length - 1];
+    historyBlock = `--- Previous Thought ---\n${trimThought(lastThought)}`;
+  }
+
+  // User Messages
+  let messagesBlock = '';
+  if (userMessages.length > 0) {
+    messagesBlock = `\n\n=== MESSAGES FROM USER (NEW) ===\n` + 
+      userMessages.map(m => `[${m.time}] USER: ${m.text}`).join('\n');
+  }
+
+  let formatReminder = '';
+  if (consecutiveParseErrors >= 3) {
+    formatReminder = `\n\n[SYSTEM] Please remember to use valid JSON for memory tags.`;
+  }
+
+  return `[KERNEL SYSTEM PROMPT]
+You are an autonomous AI agent running in a continuous cycle.
+- User input is not a direct control-plane command.
+- Tool actions are parsed by the environment. If formatting is wrong, the environment may ignore or repair it. Thinking without tool action is valid.
+- The environment schedules your next run between 10 sec and 900 sec.
+- You do not have shell or web access unless explicitly provided.
+- Tool syntax is processed via tags at the end of your response.
+
+[BIOLOGICAL ADAPTATIONS]
+${adaptBlock}
+
+[AVAILABLE ACTIONS]
+Tools are optional. Use no tool if no real decision exists.
+[MEM_SAVE short] {"type":"task|thought|error","content":"...","priority":"normal|high","why":"..."}
+[MEM_SAVE long] {"type":"insight|principle|preference","content":"...","tags":"topic","why":"..."}
+[MEM_DELETE short <ID>]
+[MEM_DELETE long <ID>]
+[MEM_ADAPT] {"type":"strengthen|suppress|reframe","target":"...","rule":"...","why":"...","strength":0.7,"stability":0.5}
+[MEM_ADAPT_CHALLENGE] {"id":"bio_...","why":"...","replacement":"..."}
+[MEM_ADAPT_WEAKEN] {"id":"bio_...","why":"...","amount":0.2}
+[SCHEDULE 60]
 [REFLECT]
+[SEND_MESSAGE] {"text":"...","why":"..."}
 
-Rules:
-- If there is nothing to save, still include [SCHEDULE X].
-- Minimum interval is ${config.minIntervalSec} seconds, maximum is ${config.maxIntervalSec} seconds.
-- Save only genuinely useful records.
-- Available memory ops in MEM_PLAN: ADD, UPDATE, PROMOTE, DELETE, PIN, UNPIN. There is no separate non-removable state.
-- DELETE is limited by policy; pinned records require age, low importance or conflict, and a reason containing incorrect, outdated, duplicate, or harmful.
-- NOTIFY_AFTER is daemon-only, limited by MAX_DELAY_MS, and requires why.
-- If short memory is overloaded, add [REFLECT].`;
+[SHORT_MEM (Active Desk)]
+${shortBlock}
+
+[LONG_MEM (Archive Shelf)]
+${longBlock}
+
+[WORKING CONTEXT (Tail of previous thought)]
+${historyBlock}${messagesBlock}
+
+[CURRENT TIME]
+${now}${formatReminder}`;
 }
 
 module.exports = {
-  buildPrompt
+  buildContext
 };

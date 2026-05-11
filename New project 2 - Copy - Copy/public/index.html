@@ -1,131 +1,76 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Local Agent Dashboard</title>
-  <style>
-    :root { color-scheme: light dark; font-family: Arial, sans-serif; }
-    body { margin: 0; padding: 24px; max-width: 1100px; }
-    header { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
-    form { display: flex; gap: 8px; margin: 20px 0; }
-    input { flex: 1; padding: 10px; font-size: 15px; }
-    button { padding: 10px 14px; font-size: 15px; cursor: pointer; }
-    main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; }
-    pre, .panel { border: 1px solid #7775; border-radius: 8px; padding: 12px; overflow: auto; }
-    #events { height: 65vh; white-space: pre-wrap; }
-    .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
-    .tab-btn { border: 1px solid #7775; border-radius: 8px; background: transparent; }
-    .tab-btn.active { font-weight: bold; }
-    .memory-summary { margin: 0 0 10px 0; }
-    .memory-list { margin: 0; padding-left: 20px; }
-    .muted { opacity: .75; }
-    @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Agent Control</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
-  <header>
-    <h1>Local Agent</h1>
-    <span id="status" class="muted">connecting...</span>
-  </header>
+    <div class="container">
+        <header>
+            <h1>Агент на базе Ollama</h1>
+            <div class="status-badge" id="agent-status">Idle</div>
+            <button id="run-btn" class="primary-btn">Форсировать цикл</button>
+        </header>
 
-  <form id="command-form">
-    <input id="command" autocomplete="off" placeholder="Введите команду агенту">
-    <button type="submit">Send</button>
-  </form>
+        <div class="grid">
+            <section class="card">
+                <h2>Состояние</h2>
+                <div class="stat-grid">
+                    <div class="stat">
+                        <span class="label">Модель</span>
+                        <span class="value" id="stat-model">-</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Запусков (Web)</span>
+                        <span class="value" id="stat-runs">-</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Следующий</span>
+                        <span class="value" id="stat-next">-</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Последний</span>
+                        <span class="value" id="stat-last">-</span>
+                    </div>
+                </div>
+                <div class="thought-box" id="last-thought">
+                    <em>Здесь появится последняя мысль агента...</em>
+                </div>
+            </section>
 
-  <main>
-    <section>
-      <h2>Events</h2>
-      <pre id="events"></pre>
-    </section>
-    <aside>
-      <h2>Memory</h2>
-      <div class="tabs">
-        <button type="button" id="tab-stm" class="tab-btn active">Краткосрочная</button>
-        <button type="button" id="tab-ltm" class="tab-btn">Долгосрочная</button>
-      </div>
-      <div id="memory" class="panel">loading...</div>
-    </aside>
-  </main>
+            <section class="card chat-card">
+                <h2>Связь с агентом</h2>
+                <div class="chat-history" id="chat-history">
+                    <div class="chat-msg system">Отправьте сообщение агенту. Он увидит его и проанализирует в начале своего следующего цикла мышления.</div>
+                </div>
+                <div class="chat-input-group">
+                    <input type="text" id="chat-input" placeholder="Написать сообщение..." class="search-input">
+                    <button id="send-msg-btn" class="primary-btn">Отправить</button>
+                </div>
+            </section>
 
-  <script>
-    const eventsEl = document.getElementById('events');
-    const memoryEl = document.getElementById('memory');
-    const statusEl = document.getElementById('status');
-    const form = document.getElementById('command-form');
-    const input = document.getElementById('command');
-    const tabStm = document.getElementById('tab-stm');
-    const tabLtm = document.getElementById('tab-ltm');
-    let activeTab = 'short';
-    let latestSnapshot = null;
+            <section class="card">
+                <h2>Краткосрочная память (<span id="short-count">0</span>)</h2>
+                <div class="memory-list" id="short-mem-list"></div>
+            </section>
 
-    function addEvent(evt) {
-      if (evt.type === 'memory.snapshot') {
-        renderMemory(evt.meta);
-        return;
-      }
-      const line = `[${evt.ts || new Date().toISOString()}] ${evt.type}: ${evt.text || ''}`;
-      eventsEl.textContent += line + '\n';
-      eventsEl.scrollTop = eventsEl.scrollHeight;
-    }
+            <section class="card">
+                <div class="card-header">
+                    <h2>Долгосрочная память (<span id="long-count">0</span>)</h2>
+                    <input type="text" id="search-ltm" placeholder="Поиск..." class="search-input">
+                </div>
+                <div class="memory-list" id="long-mem-list"></div>
+            </section>
 
-    function escapeHtml(text) {
-      return String(text || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-    }
-
-    function renderMemoryView(view) {
-      const summary = escapeHtml(view?.summary || 'Память пока пуста.');
-      const bullets = Array.isArray(view?.bullets) ? view.bullets : [];
-      const list = bullets.length
-        ? `<ul class="memory-list">${bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
-        : '<p class="muted">Пока нет пунктов для отображения.</p>';
-      memoryEl.innerHTML = `<p class="memory-summary">${summary}</p>${list}`;
-    }
-
-    function renderMemory(snapshot) {
-      latestSnapshot = snapshot || {};
-      const view = activeTab === 'long' ? latestSnapshot.long : latestSnapshot.short;
-      renderMemoryView(view);
-    }
-
-    function setTab(tab) {
-      activeTab = tab;
-      tabStm.classList.toggle('active', tab === 'short');
-      tabLtm.classList.toggle('active', tab === 'long');
-      renderMemory(latestSnapshot || {});
-    }
-
-    async function refreshMemory() {
-      const res = await fetch('/api/memory-snapshot');
-      const data = await res.json();
-      renderMemory(data.snapshot);
-    }
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = '';
-      await fetch('/api/command', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
-    });
-
-    const source = new EventSource('/api/events');
-    source.onopen = () => { statusEl.textContent = 'live'; };
-    source.onerror = () => { statusEl.textContent = 'reconnecting...'; };
-    source.onmessage = (message) => addEvent(JSON.parse(message.data));
-
-    tabStm.addEventListener('click', () => setTab('short'));
-    tabLtm.addEventListener('click', () => setTab('long'));
-
-    refreshMemory().catch(() => {});
-  </script>
+            <section class="card" style="grid-column: 1 / -1;">
+                <h2>Логи сессий</h2>
+                <div class="log-list" id="log-list" style="max-height: 200px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;"></div>
+            </section>
+        </div>
+    </div>
+    <script src="app.js"></script>
 </body>
 </html>
